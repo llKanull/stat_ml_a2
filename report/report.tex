@@ -1,0 +1,129 @@
+\documentclass[10pt,a4paper]{article}
+\usepackage[utf8]{inputenc}
+\usepackage[T1]{fontenc}
+\usepackage{graphicx}
+\usepackage{booktabs}
+\usepackage{float}
+\usepackage{listings}
+\usepackage[margin=1.7cm]{geometry}
+\usepackage{xcolor}
+\usepackage{amsmath}
+\usepackage{hyperref}
+
+\setlength{\parskip}{0.2ex}
+\setlength{\parindent}{0pt}
+
+\lstset{
+  basicstyle=\ttfamily\small,
+  breaklines=true,
+  frame=single,
+  backgroundcolor=\color{gray!10},
+  numbers=left,
+  numberstyle=\tiny\color{gray},
+}
+
+\title{COMP90051 Group Project Title}
+\author{Student ID -- Name \and Student ID -- Name}
+\date{}
+
+\begin{document}
+\maketitle
+
+\section{Introduction}
+
+State the research question, dataset(s), public URL(s), and why the question goes
+beyond the obvious dataset task.
+
+\section{Literature Review}
+
+Summarise dataset references and at least two related papers. Include the paper
+for the recent algorithm selected under the project specification.
+
+\section{Methods}
+
+Describe feature construction, preprocessing, three algorithms, outer
+cross-validation, nested cross-validation, and hyperparameter tuning.
+
+\subsection{Feature Construction and Preprocessing}
+
+Describe the non-trivial transformations applied before model fitting. Make clear
+which transformations are fit only on training folds to avoid leakage.
+
+\subsection{Algorithms}
+
+Summarise the three algorithms and their model class complexity. For the
+2016-or-later research-paper algorithm, cite the qualifying paper and explain the
+core idea at a postgraduate-readable level.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{llll}
+\toprule
+Complexity & Algorithm & Tuned parameter(s) & Citation \\
+\midrule
+Simple & TBD & TBD & TBD \\
+Medium & TBD & TBD & TBD \\
+Complex & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+\caption{Algorithms selected for comparison.}
+\end{table}
+
+\subsection{Cross-Validation and Tuning}
+
+Describe the outer cross-validation used for fair comparison and the nested
+cross-validation used for hyperparameter selection. State that these were
+implemented from scratch, and list the candidate values considered.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lll}
+\toprule
+Algorithm & Hyperparameter & Candidate values \\
+\midrule
+TBD & TBD & TBD \\
+TBD & TBD & TBD \\
+TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+\caption{Hyperparameter grids used in nested cross-validation.}
+\end{table}
+
+\section{Results and Discussion}
+
+Report at least three experimental results with error bars. Discuss why methods
+worked or did not work, their advantages and disadvantages, and alternatives
+considered.
+
+\begin{table}[H]
+\centering
+\small
+\begin{tabular}{lrrr}
+\toprule
+Algorithm & Metric 1 & Metric 2 & Metric 3 \\
+\midrule
+TBD & TBD & TBD & TBD \\
+TBD & TBD & TBD & TBD \\
+TBD & TBD & TBD & TBD \\
+\bottomrule
+\end{tabular}
+\caption{Experimental results. Report mean values with error bars.}
+\end{table}
+
+\section{Conclusion}
+
+Summarise the knowledge gained about the problem and the research question.
+
+\begin{thebibliography}{9}
+
+\bibitem{dataset_placeholder}
+Dataset Authors. (2026).
+\textit{Dataset reference placeholder}.
+\url{https://example.com}.
+Replace this entry with the actual dataset citation and add the selected papers.
+
+\end{thebibliography}
+
+\end{document}
