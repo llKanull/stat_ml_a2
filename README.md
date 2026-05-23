@@ -5,7 +5,7 @@ Repository for the COMP90051 2026 Semester 1 group project.
 The project spec requires a machine learning research question, public dataset(s),
 non-trivial feature construction/preprocessing, three distinct algorithms, custom
 cross-validation, custom nested hyperparameter tuning, and custom experimental
-metrics. Do not commit or submit datasets.
+metrics.
 
 ## Repository Layout
 
@@ -47,6 +47,47 @@ pytest
 python scripts/smoke_check.py
 ```
 
+## Airbnb Data Pipeline
+
+Download the raw Inside Airbnb Australia snapshots:
+
+```bash
+python scripts/import_airbnb.py
+```
+
+Useful import options:
+
+```bash
+python scripts/import_airbnb.py --dry-run
+python scripts/import_airbnb.py --days 365 --current-only
+python scripts/import_airbnb.py --output data/raw/inside_airbnb_australia
+```
+
+Build the processed modelling table from the raw snapshots:
+
+```bash
+python scripts/build_airbnb_features.py \
+  --raw-dir data/raw/inside_airbnb_australia \
+  --output-dir data/processed \
+  --output-name airbnb_features_latest.parquet
+```
+
+For a smaller local build, limit snapshots or cities:
+
+```bash
+python scripts/build_airbnb_features.py --max-snapshots 1 --city melbourne
+```
+
+For the full dataset, chunk snapshots before combining them:
+
+```bash
+python scripts/build_airbnb_features.py --chunked --jobs 4
+```
+
+The builder also writes `data/processed/airbnb_feature_groups.json`, which
+separates keys, targets, base controls, host text features, review text
+features, and hash features for downstream experiments.
+
 ## Project Rules To Keep Visible
 
 - Research question must go beyond the obvious dataset task and beyond simply
@@ -66,7 +107,7 @@ python scripts/smoke_check.py
   metrics must be implemented from scratch. Third-party plotting is allowed.
 - Report at least three experimental results with error bars.
 - Final Canvas submission includes a 4-page PDF report and a ZIP of code plus a
-  short `Readme.txt`; do not submit data.
+  short `Readme.txt`; do not submit raw data.
 
 ## Suggested Workflow
 
@@ -75,8 +116,9 @@ python scripts/smoke_check.py
 3. Keep reusable code in `src/comp90051_project`, not only notebooks.
 4. Use `scripts/run_experiment.py` as the stable entry point once the dataset and
    methods are selected.
-5. Commit generated figures/tables only if they are small and needed for the
-   report; raw and processed data stay local.
+5. Commit generated figures/tables only if they are needed for the report. Raw
+   data stays local; the latest processed Airbnb feature snapshot is tracked for
+   reproducibility.
 
 ## Current Status
 
