@@ -8,10 +8,8 @@ from pathlib import Path
 
 import numpy as np
 import pandas as pd
-from sklearn.feature_extraction.text import HashingVectorizer
 
 
-TEXT_HASH_FEATURES = 64
 TOKEN_RE = re.compile(r"[a-z]+(?:'[a-z]+)?")
 SENTENCE_RE = re.compile(r"[.!?]+")
 TAG_RE = re.compile(r"<[^>]+>")
@@ -75,35 +73,18 @@ NEGATIVE_WORDS = frozenset(
         "worse",
     }
 )
-HOST_LEXICONS = {
-    "warmth": frozenset(
-        {"welcome", "happy", "friendly", "love", "enjoy", "company", "home", "meet", "share"}
-    ),
-    "professionalism": frozenset(
-        {"hosting", "co-hosting", "service", "ambassador", "managed", "team", "reviews"}
-    ),
-    "local_expertise": frozenset(
-        {"melbourne", "local", "suburb", "restaurant", "guide", "recommendations", "beach", "city"}
-    ),
-    "travel_culture": frozenset(
-        {"travel", "traveller", "travelled", "journey", "cultures", "international", "countries"}
-    ),
-    "arts_lifestyle": frozenset(
-        {"artist", "animation", "video", "arts", "music", "cinema", "screenwriter", "decorator"}
-    ),
-    "family_home": frozenset({"family", "wife", "grandfather", "children", "boys", "girls", "dog"}),
-}
-REVIEW_LEXICONS = {
-    "cleanliness": frozenset({"clean", "spotless", "tidy", "dirty", "dusty"}),
-    "location": frozenset({"location", "tram", "train", "central", "walk", "cbd", "beach"}),
-    "host": frozenset({"host", "friendly", "helpful", "responsive", "communicative", "welcoming"}),
-    "comfort": frozenset({"comfortable", "bed", "quiet", "room", "spacious", "small", "noisy"}),
-    "value": frozenset({"value", "price", "expensive", "cheap", "worth"}),
-    "noise": frozenset({"noise", "noisy", "loud", "quiet", "street"}),
-    "checkin": frozenset({"checkin", "check-in", "arrival", "key", "access"}),
-    "amenity": frozenset({"wifi", "kitchen", "shower", "parking", "washer", "aircon", "heating"}),
-    "problem": frozenset({"problem", "issue", "broken", "missing", "late", "difficult"}),
-}
+
+try:
+    from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+except ImportError:  # pragma: no cover - exercised only when optional dependency is absent
+    SentimentIntensityAnalyzer = None
+
+try:
+    import textstat
+except ImportError:  # pragma: no cover - exercised only when optional dependency is absent
+    textstat = None
+
+_VADER_ANALYZER = SentimentIntensityAnalyzer() if SentimentIntensityAnalyzer is not None else None
 
 
 @dataclass(frozen=True)
@@ -117,13 +98,12 @@ class BuildConfig:
     cities: tuple[str, ...] | None = None
     max_snapshots: int | None = None
     snapshot_order: str = "latest"
+    snapshot_split: str = "all"
 
 
 def load_manifest(raw_dir: Path) -> pd.DataFrame:
     manifest = pd.read_csv(raw_dir / "manifest.csv")
-    return manifest[
-        manifest["file_name"].isin({"listings.csv.gz", "reviews.csv.gz", "calendar.csv.gz"})
-    ].copy()
+    return manifest[manifest["file_name"].isin({"listings.csv.gz", "reviews.csv.gz"})].copy()
 
 
 def clean_text(value: object) -> str:
@@ -141,19 +121,52 @@ def tokenise(text: str) -> list[str]:
     return TOKEN_RE.findall(text.lower())
 
 
-def lexical_features(
-    texts: pd.Series, prefix: str, lexicons: dict[str, frozenset[str]]
-) -> pd.DataFrame:
+def syllable_count(word: str) -> int:
+    word = word.lower()
+    groups = re.findall(r"[aeiouy]+", word)
+    count = len(groups)
+    if word.endswith("e") and count > 1:
+        count -= 1
+    return max(1, count)
+
+
+def flesch_kincaid_grade(text: str, tokens: list[str], sentence_count: int) -> float:
+    if len(tokens) < 5:
+        return np.nan
+    if textstat is not None:
+        return float(textstat.flesch_kincaid_grade(text))
+    syllables = sum(syllable_count(token) for token in tokens)
+    return 0.39 * (len(tokens) / sentence_count) + 11.8 * (syllables / len(tokens)) - 15.59
+
+
+def sentiment_scores(text: str, tokens: list[str]) -> dict[str, float]:
+    if _VADER_ANALYZER is not None:
+        scores = _VADER_ANALYZER.polarity_scores(text)
+        return {
+            "compound": float(scores["compound"]),
+            "positive": float(scores["pos"]),
+            "negative": float(scores["neg"]),
+            "neutral": float(scores["neu"]),
+        }
+    positive_count = sum(token in POSITIVE_WORDS for token in tokens)
+    negative_count = sum(token in NEGATIVE_WORDS for token in tokens)
+    token_count = len(tokens)
+    balance = (positive_count - negative_count) / token_count if token_count else 0.0
+    return {
+        "compound": float(np.clip(balance, -1.0, 1.0)),
+        "positive": positive_count / token_count if token_count else 0.0,
+        "negative": negative_count / token_count if token_count else 0.0,
+        "neutral": 1.0 - ((positive_count + negative_count) / token_count) if token_count else 0.0,
+    }
+
+
+def text_features(texts: pd.Series, prefix: str) -> pd.DataFrame:
     rows: list[dict[str, float]] = []
     for text in texts.fillna("").map(clean_text):
         tokens = tokenise(text)
         token_count = len(tokens)
-        unique_count = len(set(tokens))
         sentence_count = max(1, len([part for part in SENTENCE_RE.split(text) if part.strip()]))
-        positive_count = sum(token in POSITIVE_WORDS for token in tokens)
-        negative_count = sum(token in NEGATIVE_WORDS for token in tokens)
-        first_person = sum(token in {"i", "me", "my", "we", "our", "us"} for token in tokens)
-        second_person = sum(token in {"you", "your", "guests", "guest"} for token in tokens)
+        sentiment = sentiment_scores(text, tokens)
 
         row = {
             f"{prefix}_present": float(bool(text)),
@@ -161,43 +174,15 @@ def lexical_features(
             f"{prefix}_word_count": float(token_count),
             f"{prefix}_sentence_count": float(sentence_count),
             f"{prefix}_avg_sentence_words": token_count / sentence_count if token_count else 0.0,
-            f"{prefix}_lexical_diversity": unique_count / token_count if token_count else 0.0,
-            f"{prefix}_positive_rate": positive_count / token_count if token_count else 0.0,
-            f"{prefix}_negative_rate": negative_count / token_count if token_count else 0.0,
-            f"{prefix}_sentiment_balance": (positive_count - negative_count) / token_count
-            if token_count
-            else 0.0,
-            f"{prefix}_first_person_rate": first_person / token_count if token_count else 0.0,
-            f"{prefix}_second_person_rate": second_person / token_count if token_count else 0.0,
-            f"{prefix}_exclamation_count": float(text.count("!")),
-            f"{prefix}_question_count": float(text.count("?")),
-            f"{prefix}_contains_url": float("http" in text.lower() or ".com" in text.lower()),
-            f"{prefix}_contains_year": float(bool(re.search(r"\b(?:19|20)\d{2}\b", text))),
+            f"{prefix}_sentiment_compound": sentiment["compound"],
+            f"{prefix}_sentiment_positive": sentiment["positive"],
+            f"{prefix}_sentiment_negative": sentiment["negative"],
+            f"{prefix}_sentiment_neutral": sentiment["neutral"],
+            f"{prefix}_readability_fk_grade": flesch_kincaid_grade(text, tokens, sentence_count),
+            f"{prefix}_exclamation_density": text.count("!") / token_count if token_count else 0.0,
         }
-        token_set = set(tokens)
-        for name, words in lexicons.items():
-            row[f"{prefix}_{name}_score"] = float(len(token_set & words))
-            row[f"{prefix}_{name}_rate"] = (
-                sum(token in words for token in tokens) / token_count if token_count else 0.0
-            )
         rows.append(row)
     return pd.DataFrame(rows, index=texts.index)
-
-
-def hashed_text_features(
-    texts: pd.Series, prefix: str, n_features: int = TEXT_HASH_FEATURES
-) -> pd.DataFrame:
-    vectorizer = HashingVectorizer(
-        n_features=n_features,
-        alternate_sign=False,
-        norm=None,
-        ngram_range=(1, 2),
-        lowercase=True,
-        token_pattern=r"(?u)\b[a-zA-Z][a-zA-Z']+\b",
-    )
-    matrix = vectorizer.transform(texts.fillna("").map(clean_text))
-    columns = [f"{prefix}_hash_{index:02d}" for index in range(n_features)]
-    return pd.DataFrame(matrix.toarray(), columns=columns, index=texts.index)
 
 
 def numeric_series(df: pd.DataFrame, column: str) -> pd.Series:
@@ -244,6 +229,46 @@ def amenity_counts(values: pd.Series) -> pd.DataFrame:
             row[f"amenity_{name}_score"] = float(sum(word in text for word in words))
         rows.append(row)
     return pd.DataFrame(rows, index=values.index)
+
+
+def categorical_summary_features(listings: pd.DataFrame) -> pd.DataFrame:
+    out = pd.DataFrame(index=listings.index)
+
+    if "room_type" in listings:
+        encoded = pd.get_dummies(
+            listings["room_type"].fillna("missing"), prefix="room_type", dtype=float
+        )
+        out = pd.concat([out, encoded], axis=1)
+
+    if "host_response_time" in listings:
+        encoded = pd.get_dummies(
+            listings["host_response_time"].fillna("missing"),
+            prefix="host_response_time",
+            dtype=float,
+        )
+        out = pd.concat([out, encoded], axis=1)
+
+    if "property_type" in listings:
+        property_type = listings["property_type"].fillna("").str.lower()
+        out["property_entire_flag"] = property_type.str.contains(r"\bentire\b", regex=True).astype(
+            float
+        )
+        out["property_private_room_flag"] = property_type.str.contains("private room").astype(float)
+        out["property_shared_room_flag"] = property_type.str.contains("shared room").astype(float)
+        out["property_hotel_flag"] = property_type.str.contains(
+            "hotel|hostel|resort|aparthotel"
+        ).astype(float)
+        out["property_unique_stay_flag"] = property_type.str.contains(
+            "boat|bus|camper|castle|cave|container|farm|hut|tiny|train|treehouse|yurt"
+        ).astype(float)
+
+    for column in ["neighbourhood_cleansed", "property_type"]:
+        if column in listings:
+            counts = listings.groupby(["city", "snapshot", column])["id"].transform("count")
+            out[f"{column}_listing_count"] = counts.astype(float)
+            out[f"log_{column}_listing_count"] = np.log1p(counts)
+
+    return out
 
 
 def missingness_indicators(frame: pd.DataFrame, columns: list[str]) -> pd.DataFrame:
@@ -329,11 +354,7 @@ def listing_features(listings: pd.DataFrame) -> pd.DataFrame:
         - pd.to_datetime(listings.get("last_review"), errors="coerce")
     ).dt.days
 
-    categorical = ["room_type", "property_type", "neighbourhood_cleansed", "host_response_time"]
-    for column in categorical:
-        if column in listings:
-            encoded = pd.get_dummies(listings[column].fillna("missing"), prefix=column, dtype=float)
-            out = pd.concat([out, encoded], axis=1)
+    out = pd.concat([out, categorical_summary_features(listings)], axis=1)
 
     out = pd.concat(
         [out, amenity_counts(listings.get("amenities", pd.Series("", index=listings.index)))],
@@ -363,26 +384,26 @@ def listing_features(listings: pd.DataFrame) -> pd.DataFrame:
 
 def host_about_features(listings: pd.DataFrame) -> pd.DataFrame:
     texts = listings.get("host_about", pd.Series("", index=listings.index))
-    features = lexical_features(texts, "host_about", HOST_LEXICONS)
-    hashes = hashed_text_features(texts, "host_about")
-    return pd.concat([features, hashes], axis=1)
+    return text_features(texts, "host_about")
+
+
+def description_features(listings: pd.DataFrame) -> pd.DataFrame:
+    texts = listings.get("description", pd.Series("", index=listings.index))
+    return text_features(texts, "description")
 
 
 def review_text_scores(text: str) -> dict[str, float]:
     tokens = tokenise(text)
     token_count = len(tokens)
-    positive_count = sum(token in POSITIVE_WORDS for token in tokens)
-    negative_count = sum(token in NEGATIVE_WORDS for token in tokens)
+    sentence_count = max(1, len([part for part in SENTENCE_RE.split(text) if part.strip()]))
+    sentiment = sentiment_scores(text, tokens)
     scores = {
         "review_word_count": float(token_count),
-        "review_sentiment": (positive_count - negative_count) / token_count if token_count else 0.0,
-        "review_is_positive": float(positive_count > negative_count),
-        "review_is_negative": float(negative_count > positive_count),
+        "review_sentiment_compound": sentiment["compound"],
+        "review_sentiment_positive": sentiment["positive"],
+        "review_sentiment_negative": sentiment["negative"],
+        "review_readability_fk_grade": flesch_kincaid_grade(text, tokens, sentence_count),
     }
-    for name, words in REVIEW_LEXICONS.items():
-        scores[f"review_{name}_keyword_rate"] = (
-            sum(token in words for token in tokens) / token_count if token_count else 0.0
-        )
     return scores
 
 
@@ -406,29 +427,24 @@ def review_aggregates(
     )
     reviews = pd.concat([reviews, review_scores], axis=1)
 
-    grouped_text = reviews.groupby("listing_id")["clean_comments"].agg(" ".join)
-    lexical = lexical_features(grouped_text, "reviews", REVIEW_LEXICONS)
-    hashes = hashed_text_features(grouped_text, "reviews")
-
     agg_spec = {
         "review_text_count": ("clean_comments", "size"),
-        "mean_review_sentiment": ("review_sentiment", "mean"),
-        "sentiment_std": ("review_sentiment", "std"),
-        "negative_review_share": ("review_is_negative", "mean"),
-        "positive_review_share": ("review_is_positive", "mean"),
+        "review_sentiment_compound_mean": ("review_sentiment_compound", "mean"),
+        "review_sentiment_compound_std": ("review_sentiment_compound", "std"),
+        "review_sentiment_positive_mean": ("review_sentiment_positive", "mean"),
+        "review_sentiment_negative_mean": ("review_sentiment_negative", "mean"),
+        "review_readability_fk_grade_mean": ("review_readability_fk_grade", "mean"),
         "average_review_length": ("review_word_count", "mean"),
     }
-    for name in REVIEW_LEXICONS:
-        agg_spec[f"{name}_keyword_rate"] = (f"review_{name}_keyword_rate", "mean")
     counts = reviews.groupby("listing_id").agg(**agg_spec)
     counts = counts.rename(columns={"review_text_count": "review_count_before_cutoff"})
     latest = reviews.groupby("listing_id")["date"].max()
     earliest = reviews.groupby("listing_id")["date"].min()
     counts["review_days_since_latest"] = (pd.Timestamp(snapshot) - latest).dt.days
     counts["review_span_days"] = (latest - earliest).dt.days
-    counts["sentiment_std"] = counts["sentiment_std"].fillna(0.0)
+    counts["review_sentiment_compound_std"] = counts["review_sentiment_compound_std"].fillna(0.0)
 
-    return pd.concat([counts, lexical, hashes], axis=1).reset_index()
+    return counts.reset_index()
 
 
 def read_listings(path: Path, city: str, snapshot: str) -> pd.DataFrame:
@@ -442,61 +458,38 @@ def read_reviews(path: Path, max_rows: int | None) -> pd.DataFrame:
     return pd.read_csv(path, nrows=max_rows, low_memory=False)
 
 
-def has_rows(path: Path) -> bool:
-    try:
-        data = pd.read_csv(path, nrows=1)
-    except pd.errors.EmptyDataError:
-        return False
-    return not data.empty
-
-
-def calendar_targets(path: Path, snapshot: str, horizon_days: int) -> pd.DataFrame:
-    calendar = pd.read_csv(path, low_memory=False)
-    calendar["date"] = pd.to_datetime(calendar["date"], errors="coerce")
-    cutoff = pd.Timestamp(snapshot)
-    end = cutoff + pd.Timedelta(days=horizon_days)
-    calendar = calendar[(calendar["date"] >= cutoff) & (calendar["date"] < end)].copy()
-    if calendar.empty:
+def listing_availability_targets(listings: pd.DataFrame, horizon_days: int) -> pd.DataFrame:
+    if horizon_days != 90 or "availability_90" not in listings:
         return pd.DataFrame(columns=["listing_id"])
-    calendar["available_flag"] = calendar["available"].map({"t": 1.0, "f": 0.0})
-    calendar["calendar_price"] = money_series(calendar, "price")
-    calendar["is_weekend"] = calendar["date"].dt.dayofweek.isin([4, 5]).astype(float)
-
-    targets = calendar.groupby("listing_id").agg(
-        target_calendar_days=("available_flag", "size"),
-        target_available_rate_90=("available_flag", "mean"),
-        target_calendar_price_mean=("calendar_price", "mean"),
-        target_calendar_price_std=("calendar_price", "std"),
+    available_days = numeric_series(listings, "availability_90").clip(lower=0, upper=90)
+    targets = pd.DataFrame(
+        {
+            "listing_id": listings["id"].astype("int64"),
+            "target_horizon_days": float(horizon_days),
+            "target_available_rate_90": available_days / horizon_days,
+        },
+        index=listings.index,
     )
-    weekend = (
-        calendar[calendar["is_weekend"].eq(1.0)].groupby("listing_id")["calendar_price"].mean()
-    )
-    weekday = (
-        calendar[calendar["is_weekend"].eq(0.0)].groupby("listing_id")["calendar_price"].mean()
-    )
-    targets["target_weekend_price_premium"] = weekend - weekday
     targets["target_unavailable_rate_90"] = 1.0 - targets["target_available_rate_90"]
-    targets["target_calendar_price_std"] = targets["target_calendar_price_std"].fillna(0.0)
-    targets["target_weekend_price_premium"] = targets["target_weekend_price_premium"].fillna(0.0)
-    return targets.reset_index()
+    return targets
 
 
 def build_snapshot_features(
     listings_path: Path,
     reviews_path: Path,
-    calendar_path: Path,
     city: str,
     snapshot: str,
     config: BuildConfig,
 ) -> pd.DataFrame:
     listings = read_listings(listings_path, city, snapshot)
     listing_df = listing_features(listings)
+    description_df = description_features(listings)
     host_df = host_about_features(listings)
     reviews = read_reviews(reviews_path, config.max_review_rows)
     review_df = review_aggregates(reviews, config.max_reviews_per_listing, snapshot)
-    target_df = calendar_targets(calendar_path, snapshot, config.target_horizon_days)
+    target_df = listing_availability_targets(listings, config.target_horizon_days)
 
-    features = pd.concat([listing_df, host_df], axis=1)
+    features = pd.concat([listing_df, description_df, host_df], axis=1)
     features = features.merge(review_df, how="left", left_on="listing_id", right_on="listing_id")
     return features.merge(target_df, how="inner", left_on="listing_id", right_on="listing_id")
 
@@ -511,6 +504,17 @@ def selected_snapshots(config: BuildConfig) -> pd.DataFrame:
     ).reset_index()
     if config.cities is not None:
         grouped = grouped[grouped["city"].isin(config.cities)]
+    if config.snapshot_split == "latest":
+        grouped = grouped.sort_values(["city", "snapshot"]).groupby("city").tail(1)
+    elif config.snapshot_split == "before-latest":
+        latest = grouped.groupby("city")["snapshot"].transform("max")
+        grouped = grouped[grouped["snapshot"] < latest]
+    elif config.snapshot_split == "previous":
+        latest = grouped.groupby("city")["snapshot"].transform("max")
+        grouped = grouped[grouped["snapshot"] < latest].sort_values(["city", "snapshot"])
+        grouped = grouped.groupby("city").tail(1)
+    elif config.snapshot_split != "all":
+        raise ValueError("snapshot_split must be one of: all, latest, before-latest, previous")
     if config.max_snapshots is not None:
         ascending = config.snapshot_order == "earliest"
         grouped = (
@@ -528,27 +532,26 @@ def build_dataset(config: BuildConfig) -> pd.DataFrame:
     for city, snapshot in grouped[["city", "snapshot"]].itertuples(index=False, name=None):
         listings_path = config.raw_dir / city / snapshot / "listings.csv.gz"
         reviews_path = config.raw_dir / city / snapshot / "reviews.csv.gz"
-        calendar_path = config.raw_dir / city / snapshot / "calendar.csv.gz"
-        if listings_path.exists() and reviews_path.exists() and calendar_path.exists():
-            if not has_rows(calendar_path):
-                continue
+        if listings_path.exists() and reviews_path.exists():
             records.append(
-                build_snapshot_features(
-                    listings_path, reviews_path, calendar_path, city, snapshot, config
-                )
+                build_snapshot_features(listings_path, reviews_path, city, snapshot, config)
             )
 
     if not records:
         raise FileNotFoundError(f"No listing/review snapshots found under {config.raw_dir}")
 
     data = pd.concat(records, ignore_index=True, sort=False)
-    data["target_high_demand"] = (
+    high_demand = (
         data["target_unavailable_rate_90"] >= data["target_unavailable_rate_90"].quantile(0.75)
     ).astype(int)
-    data["target_high_popularity"] = (
+    high_popularity = (
         data["target_reviews_ltm"]
         >= max(config.min_reviews_ltm_for_popular, data["target_reviews_ltm"].quantile(0.75))
     ).astype(int)
+    data = data.assign(
+        target_high_demand=high_demand,
+        target_high_popularity=high_popularity,
+    )
     return data.replace([np.inf, -np.inf], np.nan)
 
 
@@ -556,42 +559,26 @@ def feature_groups(data: pd.DataFrame) -> dict[str, list[str]]:
     columns = list(data.columns)
     keys = ["city", "snapshot", "listing_id"]
     targets = [column for column in columns if column.startswith("target_")]
-    host_nlp = [
-        column for column in columns if column.startswith("host_about_") and "_hash_" not in column
-    ]
-    host_hash = [column for column in columns if column.startswith("host_about_hash_")]
-    review_nlp_prefixes = (
-        "review_count_before_cutoff",
-        "mean_review_sentiment",
-        "sentiment_std",
-        "negative_review_share",
-        "positive_review_share",
-        "average_review_length",
-        "review_days_since_latest",
-        "review_span_days",
-    )
+    description_nlp = [column for column in columns if column.startswith("description_")]
+    host_nlp = [column for column in columns if column.startswith("host_about_")]
     review_nlp = [
         column
         for column in columns
-        if column.startswith(review_nlp_prefixes)
-        or column.endswith("_keyword_rate")
-        or (column.startswith("reviews_") and "_hash_" not in column)
+        if column.startswith("review_") or column.startswith("average_review_length")
     ]
-    review_hash = [column for column in columns if column.startswith("reviews_hash_")]
-    excluded = set(keys + targets + host_nlp + host_hash + review_nlp + review_hash)
+    excluded = set(keys + targets + description_nlp + host_nlp + review_nlp)
     base = [column for column in columns if column not in excluded]
     return {
         "keys": keys,
         "targets": targets,
         "base_controls": base,
+        "description_nlp": description_nlp,
         "host_nlp": host_nlp,
-        "host_hash": host_hash,
         "review_nlp": review_nlp,
-        "review_hash": review_hash,
-        "host_all": host_nlp + host_hash,
-        "review_all": review_nlp + review_hash,
-        "text_all": host_nlp + host_hash + review_nlp + review_hash,
-        "model_all": base + host_nlp + host_hash + review_nlp + review_hash,
+        "host_all": host_nlp,
+        "review_all": review_nlp,
+        "text_all": description_nlp + host_nlp + review_nlp,
+        "model_all": base + description_nlp + host_nlp + review_nlp,
     }
 
 

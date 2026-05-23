@@ -14,7 +14,8 @@ data/raw/*
 data/processed/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
-!data/processed/airbnb_features_latest.parquet
+!data/processed/*.parquet
+
 
 # Generated outputs.
 outputs/figures/*
