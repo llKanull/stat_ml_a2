@@ -9,10 +9,8 @@
 \usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{hyperref}
-
 \setlength{\parskip}{0.2ex}
 \setlength{\parindent}{0pt}
-
 \lstset{
   basicstyle=\ttfamily\small,
   breaklines=true,
@@ -21,108 +19,341 @@
   numbers=left,
   numberstyle=\tiny\color{gray},
 }
-
-\title{COMP90051 Group Project Title}
-\author{Student ID -- Name \and Student ID -- Name}
+\title{\textbf{Predicting Airbnb Rental Demand: Comparing\\
+Logistic Regression, CatBoost, and FT-Transformer with\\
+NLP-Engineered Features on Australian Listings}\\[0.4em]
+\large COMP90051 Statistical Machine Learning Assignment 2 Group Project}
+\author{Kezia Angelina Sutjianta (1576561) \and [Student ID] -- [Name] \and [Student ID] -- [Name]}
 \date{}
 
 \begin{document}
 \maketitle
 
+% ─────────────────────────────────────────────────────────────────────────────
 \section{Introduction}
+% ─────────────────────────────────────────────────────────────────────────────
 
-State the research question, dataset(s), public URL(s), and why the question goes
-beyond the obvious dataset task.
+The short-term rental market has expanded substantially, with platforms such as
+Airbnb hosting millions of listings worldwide. Predicting listing demand is
+commercially important for hosts, property managers, and platform operators.
+Existing work on Airbnb demand prediction largely relies on structured attributes
+such as price, location, and review scores \cite{rezazadeh2021}. However,
+listings similar in price and review scores often differ in the quality and tone
+of their host profiles and text descriptions --- differences that structured
+features cannot directly capture.
 
+\textbf{Research question:} \textit{Does NLP-derived text from host profiles and
+guest reviews improve demand prediction beyond base listing features alone?}
+This goes beyond the obvious prediction task: rather than simply predicting
+availability from price and location, we design a controlled ablation where three
+classifiers at different complexity tiers are each evaluated on two feature sets
+--- base-only versus base plus NLP-engineered text features --- isolating the
+marginal value of unstructured text.
+
+\textbf{Dataset:} We use publicly available data from Inside Airbnb
+(\url{https://insideairbnb.com}) \cite{insideairbnb}, covering eight Australian
+cities (Brisbane, Melbourne, Sunshine Coast, Mornington Peninsula, Northern
+Rivers, Barossa Valley, Barwon South West, Mid-North Coast) across eight monthly
+snapshots (May~2025--January~2026). After filtering inactive and long-term
+listings (Section~3.1), the training set comprises 53{,}348 listings.
+Sydney, Tasmania, and Western Australia (31{,}675 listings) are withheld as a
+geographic generalisation split.
+
+%──────────────────────────────────────────────────────────────────────────────
 \section{Literature Review}
+%──────────────────────────────────────────────────────────────────────────────
 
-Summarise dataset references and at least two related papers. Include the paper
-for the recent algorithm selected under the project specification.
+Rezazadeh Kalehbasti et al.\ \cite{rezazadeh2021} benchmark machine learning
+models for Airbnb price prediction, finding gradient-boosted trees consistently
+outperform linear models on structured tabular features. Their work excludes
+unstructured text, motivating our NLP ablation design.
 
+Hutto and Gilbert \cite{hutto2014} introduced VADER, a lexicon-based sentiment
+analyser calibrated for informal text. We apply VADER to host profiles, listing
+descriptions, and guest reviews to extract compound, positive, negative, and
+neutral sentiment scores, providing fast text feature engineering without
+requiring neural embeddings.
+
+Prokhorenkova et al.\ \cite{prokhorenkova2018} introduced CatBoost, demonstrating
+that \textit{ordered boosting} eliminates prediction-shift bias in standard
+gradient boosting by computing residuals on a permutation-ordered subset of
+training data. This is our medium-complexity baseline and the qualifying
+algorithm (NeurIPS 2018).
+
+Gorishniy et al.\ \cite{gorishniy2021} propose the Feature Tokenizer +
+Transformer (FT-Transformer), showing Transformer architectures match or exceed
+gradient-boosted trees on several tabular benchmarks when each feature is first
+embedded via a learned per-feature linear map (NeurIPS 2021). Notably, the paper
+acknowledges that tree-based models remain competitive; our results corroborate
+this finding on a real-world demand prediction task.
+
+%──────────────────────────────────────────────────────────────────────────────
 \section{Methods}
-
-Describe feature construction, preprocessing, three algorithms, outer
-cross-validation, nested cross-validation, and hyperparameter tuning.
+%──────────────────────────────────────────────────────────────────────────────
 
 \subsection{Feature Construction and Preprocessing}
 
-Describe the non-trivial transformations applied before model fitting. Make clear
-which transformations are fit only on training folds to avoid leakage.
+Raw listings from Inside Airbnb provide structured attributes and free-text
+fields. We engineer 97 features across four groups (Table~\ref{tab:features}).
+All statistics used in feature construction are computed only on the training
+portion of each outer fold to prevent leakage.
+
+\begin{table}[H]
+\centering\small
+\begin{tabular}{p{2.9cm}cp{9.8cm}}
+\toprule
+Feature group & Count & Description \\
+\midrule
+Base controls   & 64 &
+  Price and price-derived ratios; capacity (accommodates, bedrooms, beds,
+  bathrooms); minimum nights; host tenure, response rate, superhost status,
+  identity verification, instant bookability; review scores; amenity group
+  scores; location features (distance from city centroid). \\[2pt]
+Description NLP & 11 &
+  VADER compound, positive, negative, neutral sentiment; Flesch-Kincaid grade;
+  character count; word count; sentence count; average words per sentence;
+  type-token ratio; presence indicator. \\[2pt]
+Host profile NLP & 11 &
+  Same eleven NLP features applied to the \texttt{host\_about} text field. \\[2pt]
+Review NLP      & 11 &
+  VADER compound mean, std, min, max across all listing reviews; review count
+  before snapshot cutoff; Flesch-Kincaid mean; recency-weighted sentiment;
+  positive, negative, and neutral means. \\
+\bottomrule
+\end{tabular}
+\caption{Feature groups. Total: 97 features (64 base + 33 NLP).}
+\label{tab:features}
+\end{table}
+
+\textbf{Target construction.}
+The demand target is binary: a listing is labelled high-demand if its
+unavailability rate $r = (90 - \texttt{availability\_90})/90$ exceeds the
+75th percentile computed on the training fold (positive-class rate $= 0.25$).
+We exclude \texttt{estimated\_occupancy\_l365d}: Inside Airbnb computes it
+from review counts (Pearson $r = 0.638$ with \texttt{number\_of\_reviews\_ltm}),
+creating feature--target leakage when review NLP features are present.
+Three listing types are removed before splitting: (1)~long-term rentals
+(\texttt{minimum\_nights} $> 90$); (2)~host-closed calendars
+(\texttt{has\_availability = f}); (3)~never-reviewed listings
+(\texttt{number\_of\_reviews} $= 0$), reducing the dataset from 62{,}650 to
+53{,}348 rows. Missing numeric values are replaced with per-column medians
+computed on each outer training fold.
 
 \subsection{Algorithms}
 
-Summarise the three algorithms and their model class complexity. For the
-2016-or-later research-paper algorithm, cite the qualifying paper and explain the
-core idea at a postgraduate-readable level.
-
 \begin{table}[H]
-\centering
-\small
+\centering\small
 \begin{tabular}{llll}
 \toprule
 Complexity & Algorithm & Tuned parameter(s) & Citation \\
 \midrule
-Simple & TBD & TBD & TBD \\
-Medium & TBD & TBD & TBD \\
-Complex & TBD & TBD & TBD \\
+Simple  & Logistic Regression (L2) & $C \in \{0.0001, 0.001, 0.01\}$  & --- \\
+Medium  & CatBoost                 & depth $\in \{9, 12, 15\}$         & \cite{prokhorenkova2018} \\
+Complex & FT-Transformer           & \#blocks $\in \{4, 6, 8\}$        & \cite{gorishniy2021} \\
 \bottomrule
 \end{tabular}
 \caption{Algorithms selected for comparison.}
+\label{tab:algorithms}
 \end{table}
 
-\subsection{Cross-Validation and Tuning}
+\textbf{Logistic Regression (simple).}
+L2-penalised logistic regression optimises the cross-entropy loss, yielding a
+linear decision boundary with feature standardisation applied internally.
+$C = 0.001$ (strong regularisation) was selected in 8 of 10 outer folds,
+suggesting the high-dimensional feature space benefits from aggressive weight
+shrinkage.
 
-Describe the outer cross-validation used for fair comparison and the nested
-cross-validation used for hyperparameter selection. State that these were
-implemented from scratch, and list the candidate values considered.
+\textbf{CatBoost (medium, NeurIPS 2018).}
+Gradient-boosted symmetric trees with ordered boosting \cite{prokhorenkova2018}.
+Standard gradient boosting suffers from prediction-shift bias: the gradient for
+a sample is computed using model predictions that incorporate that sample's
+contribution. CatBoost eliminates this by computing residuals on a
+permutation-ordered training subset, yielding unbiased gradients without
+held-out folds. Tree depth $= 12$ was selected in all 10 outer folds.
+Fixed: 100 iterations, learning rate $= 0.1$.
+
+\textbf{FT-Transformer (complex, NeurIPS 2021).}
+Each feature is mapped to a $d$-dimensional embedding via
+$\mathbf{t}_i = x_i\mathbf{W}_i + \mathbf{b}_i$ (Feature Tokenizer)
+\cite{gorishniy2021}. A learnable \texttt{[CLS]} token is prepended and the
+sequence processed by $L$ Pre-LayerNorm Transformer encoder layers with GELU
+activations and multi-head self-attention, allowing all feature pairs to interact
+at every layer. The \texttt{[CLS]} output feeds a linear head. Implemented from
+scratch in PyTorch; run on Colab T4 GPU (${\approx}750$s/fold). Fixed:
+$d = 32$, 4 heads, feedforward dim $= 128$, AdamW lr $= 3{\times}10^{-4}$,
+15 epochs, patience 5.
+
+\subsection{Cross-Validation and Hyperparameter Tuning}
+
+\textbf{Outer CV.} 10-fold cross-validation ($k = 10$, satisfying $k \geq 10$),
+implemented from scratch. All models use identical folds for fair comparison.
+The demand-target threshold is recomputed on each outer training fold to prevent
+distributional leakage.
+
+\textbf{Inner CV.} Within each outer training fold, hyperparameters are selected
+by nested 3-fold CV, also implemented from scratch, using macro-F1 as the inner
+criterion. Grid search covers all candidates in Table~\ref{tab:hpgrid}.
 
 \begin{table}[H]
-\centering
-\small
+\centering\small
 \begin{tabular}{lll}
 \toprule
 Algorithm & Hyperparameter & Candidate values \\
 \midrule
-TBD & TBD & TBD \\
-TBD & TBD & TBD \\
-TBD & TBD & TBD \\
+Logistic Regression & $C$ (inverse regularisation) & $\{0.0001,\ 0.001,\ 0.01\}$ \\
+CatBoost            & Tree depth                   & $\{9,\ 12,\ 15\}$           \\
+FT-Transformer      & Encoder layers               & $\{4,\ 6,\ 8\}$             \\
 \bottomrule
 \end{tabular}
-\caption{Hyperparameter grids used in nested cross-validation.}
+\caption{Hyperparameter grids for nested cross-validation.}
+\label{tab:hpgrid}
 \end{table}
 
+%──────────────────────────────────────────────────────────────────────────────
 \section{Results and Discussion}
+%──────────────────────────────────────────────────────────────────────────────
 
-Report at least three experimental results with error bars. Discuss why methods
-worked or did not work, their advantages and disadvantages, and alternatives
-considered.
+All metrics are computed from scratch without third-party metric libraries.
+ROC-AUC uses the rank-sum formula. Error bars are $1.96\times\hat\sigma/\sqrt{10}$.
+Table~\ref{tab:results} reports five metrics across all six model--feature
+combinations; Table~\ref{tab:cm} shows the confusion matrix for the best-performing
+configuration (CatBoost, base features only).
 
 \begin{table}[H]
-\centering
-\small
-\begin{tabular}{lrrr}
+\centering\small
+\setlength{\tabcolsep}{4.5pt}
+\begin{tabular}{llccccc}
 \toprule
-Algorithm & Metric 1 & Metric 2 & Metric 3 \\
+Model & Features & Accuracy & Macro-F1 & Macro-Prec. & Macro-Rec. & ROC-AUC \\
 \midrule
-TBD & TBD & TBD & TBD \\
-TBD & TBD & TBD & TBD \\
-TBD & TBD & TBD & TBD \\
+Logistic       & Base only   & $0.888\pm0.003$ & $0.834\pm0.004$ & $0.887\pm0.004$ & $0.800\pm0.004$ & $0.854\pm0.004$ \\
+Logistic       & Base+Text   & $0.888\pm0.003$ & $0.834\pm0.004$ & $0.887\pm0.004$ & $0.801\pm0.004$ & $0.855\pm0.004$ \\
+FT-Transformer & Base only   & $0.877\pm0.003$ & $0.810\pm0.005$ & $0.844\pm0.005$ & $0.779\pm0.005$ & $0.856\pm0.005$ \\
+FT-Transformer & Base+Text   & $0.878\pm0.003$ & $0.810\pm0.004$ & $0.843\pm0.005$ & $0.779\pm0.004$ & $0.855\pm0.004$ \\
+CatBoost       & Base only   & $0.900\pm0.003$ & $0.851\pm0.004$ & $0.906\pm0.004$ & $0.814\pm0.005$ & $\mathbf{0.901\pm0.003}$ \\
+CatBoost       & Base+Text   & $0.898\pm0.003$ & $0.848\pm0.003$ & $0.904\pm0.004$ & $0.811\pm0.004$ & $0.898\pm0.004$ \\
 \bottomrule
 \end{tabular}
-\caption{Experimental results. Report mean values with error bars.}
+\caption{Experimental results: mean $\pm$ 95\% CI across 10 outer folds
+  (53{,}348 training listings). Best AUC in bold.}
+\label{tab:results}
 \end{table}
 
+\begin{table}[H]
+\centering\small
+\begin{tabular}{llcc}
+\toprule
+ & & \multicolumn{2}{c}{\textbf{Predicted}} \\
+\cmidrule(l){3-4}
+ & & Low demand (0) & High demand (1) \\
+\midrule
+\multirow{2}{*}{\textbf{Actual}}
+  & Low demand (0)  & 3{,}943 (TN) & 59 (FP) \\
+  & High demand (1) & 476 (FN)     & 857 (TP) \\
+\bottomrule
+\end{tabular}
+\caption{Confusion matrix for CatBoost (base features only), averaged per
+  outer fold ($n_{\text{test}}\approx5{,}335$, positive rate $= 0.25$).
+  Precision $= 0.935$, Recall $= 0.643$, Specificity $= 0.985$.}
+\label{tab:cm}
+\end{table}
+
+\textbf{Model complexity and performance.}
+CatBoost outperforms both Logistic Regression and FT-Transformer:
+$\Delta\text{AUC} = +0.047$ over Logistic and $+0.045$ over FT-Transformer
+on base features. The confusion matrix (Table~\ref{tab:cm}) reveals why
+accuracy is an insensitive criterion here: with 75\% negative samples, a
+classifier predicting all negatives achieves 75\% accuracy. CatBoost achieves
+high specificity (0.985 --- few false positives) but moderate recall (0.643
+--- misses 36\% of high-demand listings), reflecting a class-imbalance trade-off
+that gradient-boosted trees handle better through their non-linear splits. The
+macro-recall gap between CatBoost (0.814) and Logistic Regression (0.800)
+captures this: CatBoost's deeper trees identify more true high-demand listings.
+
+Contrary to expectation, FT-Transformer ($\text{AUC} = 0.856$) matches Logistic
+Regression ($\text{AUC} = 0.854$) despite far greater model complexity. The
+encoder-layer hyperparameter showed no consistent winner (4, 6, and 8 each
+selected 3--4 times), confirming the model is depth-insensitive on this dataset.
+This is consistent with Gorishniy et al.\ \cite{gorishniy2021}, who note
+tree-based models remain competitive on tabular data: attention over 97
+features provides no advantage when demand is dominated by a small number of
+strong structured signals.
+
+\textbf{Effect of NLP-engineered text features.}
+Adding 33 NLP features produces no measurable improvement for any model:
+$\Delta\text{AUC} = +0.001$ (Logistic), $-0.003$ (CatBoost), $-0.001$
+(FT-Transformer) --- all within one standard error. VADER sentiment and
+Flesch-Kincaid readability are proxies for listing quality already well-captured
+by review scores, superhost status, and host tenure in the base feature set.
+At the 90-day horizon, demand is governed by price, location, and capacity
+rather than host communication style. This negative result is informative:
+richer NLP representations (e.g.\ SBERT embeddings) are unlikely to improve
+short-stay demand prediction unless structured quality signals are unavailable.
+
+\textbf{Alternatives considered.}
+TabNet \cite{arik2021} was initially selected as the complex model but does not
+qualify under the required venues (NeurIPS/ICML/ICLR/JMLR/TMLR); replaced by
+FT-Transformer \cite{gorishniy2021}. LightGBM (NeurIPS 2017) was considered but
+falls in the same model class as CatBoost, violating the different-complexity
+tier requirement. \texttt{estimated\_occupancy\_l365d} was rejected as a target
+due to feature--target leakage ($r = 0.638$ with review counts).
+
+%──────────────────────────────────────────────────────────────────────────────
 \section{Conclusion}
+%──────────────────────────────────────────────────────────────────────────────
 
-Summarise the knowledge gained about the problem and the research question.
+This study compared Logistic Regression, CatBoost (NeurIPS 2018), and
+FT-Transformer (NeurIPS 2021) for predicting high-demand Airbnb listings across
+53{,}348 Australian properties, with and without NLP-engineered text features.
+Two main findings emerge. First, model architecture dominates: CatBoost achieves
+ROC-AUC $= 0.901$, outperforming both Logistic Regression ($0.854$) and
+FT-Transformer ($0.856$) by $\Delta\text{AUC} \approx 0.047$, demonstrating
+that short-stay demand is governed by non-linear structural interactions that
+gradient-boosted trees handle best. Second, NLP text features provide no
+measurable lift for any model ($|\Delta\text{AUC}| \leq 0.003$), indicating
+VADER sentiment and Flesch-Kincaid readability are redundant given the structured
+quality signals present in base features. Practitioners seeking to improve
+demand prediction should prioritise richer structural features and well-tuned
+gradient-boosted models over text feature engineering.
 
+%──────────────────────────────────────────────────────────────────────────────
 \begin{thebibliography}{9}
+%──────────────────────────────────────────────────────────────────────────────
 
-\bibitem{dataset_placeholder}
-Dataset Authors. (2026).
-\textit{Dataset reference placeholder}.
-\url{https://example.com}.
-Replace this entry with the actual dataset citation and add the selected papers.
+\bibitem{insideairbnb}
+Cox, M.\ (2025). \textit{Inside Airbnb: Adding data to the debate}.
+\url{https://insideairbnb.com}.
+
+\bibitem{rezazadeh2021}
+Rezazadeh Kalehbasti, P., Nikolenko, L., \& Rezaei, H.\ (2021).
+Airbnb price prediction using machine learning and sentiment analysis.
+\textit{Advances in Cross-Cultural Decision Making}, 12, 205--217.
+\url{https://arxiv.org/abs/1907.12665}.
+
+\bibitem{hutto2014}
+Hutto, C.\ J., \& Gilbert, E.\ (2014).
+VADER: A parsimonious rule-based model for sentiment analysis of social media text.
+\textit{Proceedings of the 8th AAAI International Conference on Weblogs and
+Social Media}, 216--225.
+
+\bibitem{prokhorenkova2018}
+Prokhorenkova, L., Gusev, G., Vorobev, A., Dorogush, A.\ V., \& Gulin, A.\
+(2018). CatBoost: Unbiased boosting with categorical features.
+\textit{Advances in Neural Information Processing Systems}, 31.
+\url{https://proceedings.neurips.cc/paper/2018/hash/14491b756b3a51daac41c24863285549-Abstract.html}.
+
+\bibitem{gorishniy2021}
+Gorishniy, Y., Rubachev, I., Khrulkov, V., \& Babenko, A.\ (2021).
+Revisiting deep learning models for tabular data.
+\textit{Advances in Neural Information Processing Systems}, 34, 18932--18943.
+\url{https://arxiv.org/abs/2106.11959}.
+
+\bibitem{arik2021}
+Arik, S.\ \"{O}., \& Pfister, T.\ (2021).
+TabNet: Attentive interpretable tabular learning.
+\textit{Proceedings of the AAAI Conference on Artificial Intelligence},
+35, 6679--6687.
+\url{https://arxiv.org/abs/1908.07442}.
 
 \end{thebibliography}
 
