@@ -131,13 +131,13 @@ class FTTransformerModel:
     def __init__(
         self,
         n_blocks: int = 4,
-        d_token: int = 64,
-        n_heads: int = 8,
-        ffn_dim: int = 256,
+        d_token: int = 32,       # was 64 — halves parameter count
+        n_heads: int = 4,        # was 8
+        ffn_dim: int = 128,      # was 256
         dropout: float = 0.1,
         lr: float = 3e-4,
-        max_epochs: int = 50,
-        patience: int = 10,
+        max_epochs: int = 15,    # was 50 — biggest speedup
+        patience: int = 5,       # was 10
         batch_size: int = 512,
     ) -> None:
         self.n_blocks = int(n_blocks)

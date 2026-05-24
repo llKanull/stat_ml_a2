@@ -27,7 +27,7 @@ from comp90051_project.tuning import tune_hyperparameters
 # Hyperparameter grids 
 LOGISTIC_GRID: dict = {"C": [0.0001, 0.001, 0.01]}
 CATBOOST_GRID: dict = {"depth": [9, 12, 15]}
-FTTRANSFORMER_GRID: dict = {"n_blocks": [2, 4, 6]}
+FTTRANSFORMER_GRID: dict = {"n_blocks": [4, 6, 8]}
 
 class _MedianImputer:
     def __init__(self) -> None:
