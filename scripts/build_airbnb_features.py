@@ -23,9 +23,7 @@ def build_chunk(task: tuple[BuildConfig, str, str]) -> tuple[Path | None, int]:
     reviews_path = config.raw_dir / city / snapshot / "reviews.csv.gz"
     if not (listings_path.exists() and reviews_path.exists()):
         return None, 0
-    part = build_snapshot_features(
-        listings_path, reviews_path, city, snapshot, config
-    )
+    part = build_snapshot_features(listings_path, reviews_path, city, snapshot, config)
     part_path = write_dataset(
         part,
         config.output_dir / "snapshots",

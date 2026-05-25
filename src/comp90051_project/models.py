@@ -17,7 +17,6 @@ class LogisticModel:
         self._scaler: StandardScaler = StandardScaler()
         self._clf: LogisticRegression = LogisticRegression(
             C=self.C,
-            
             solver="lbfgs",
             max_iter=1000,
             random_state=42,
@@ -48,7 +47,7 @@ class CatBoostModel:
         self.depth = int(depth)
         self.learning_rate = float(learning_rate)
         self.iterations = int(iterations)
-        self._clf = None
+        self._clf: CatBoostClassifier | None = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "CatBoostModel":
         self._clf = CatBoostClassifier(
@@ -63,9 +62,13 @@ class CatBoostModel:
         return self
 
     def predict(self, X: np.ndarray) -> np.ndarray:
+        if self._clf is None:
+            raise RuntimeError("Call fit before predict.")
         return self._clf.predict(np.asarray(X, dtype=float)).ravel()
 
     def predict_scores(self, X: np.ndarray) -> np.ndarray:
+        if self._clf is None:
+            raise RuntimeError("Call fit before predict_scores.")
         return self._clf.predict_proba(np.asarray(X, dtype=float))[:, 1]
 
 
@@ -87,14 +90,14 @@ class _FTTransformerNet:
             def __init__(self):
                 super().__init__()
 
-                # Tokenizer 
+                # Tokenizer
                 self.W = nn.Parameter(torch.empty(n_features, d_token))
                 self.B = nn.Parameter(torch.zeros(n_features, d_token))
                 nn.init.kaiming_uniform_(self.W, a=math.sqrt(5))
                 self.cls = nn.Parameter(torch.empty(1, 1, d_token))
                 nn.init.normal_(self.cls, std=0.02)
 
-                # Transformer encoder 
+                # Transformer encoder
                 encoder_layer = nn.TransformerEncoderLayer(
                     d_model=d_token,
                     nhead=n_heads,
@@ -107,7 +110,8 @@ class _FTTransformerNet:
                 self.encoder = nn.TransformerEncoder(
                     encoder_layer,
                     num_layers=n_blocks,
-                    norm=nn.LayerNorm(d_token), enable_nested_tensor=False,
+                    norm=nn.LayerNorm(d_token),
+                    enable_nested_tensor=False,
                 )
 
                 # Classification head
@@ -117,27 +121,27 @@ class _FTTransformerNet:
                 )
 
             def forward(self, x: "torch.Tensor") -> "torch.Tensor":
-                tokens = x.unsqueeze(-1) * self.W + self.B  
-                cls = self.cls.expand(x.size(0), -1, -1)    
-                tokens = torch.cat([cls, tokens], dim=1)     
-                encoded = self.encoder(tokens)               
-                return self.head(encoded[:, 0, :])          
+                tokens = x.unsqueeze(-1) * self.W + self.B
+                cls = self.cls.expand(x.size(0), -1, -1)
+                tokens = torch.cat([cls, tokens], dim=1)
+                encoded = self.encoder(tokens)
+                return self.head(encoded[:, 0, :])
 
         return Net()
 
 
-# FT-Transformer wrapper 
+# FT-Transformer wrapper
 class FTTransformerModel:
     def __init__(
         self,
         n_blocks: int = 4,
-        d_token: int = 32,       # was 64 — halves parameter count
-        n_heads: int = 4,        # was 8
-        ffn_dim: int = 128,      # was 256
+        d_token: int = 32,  # was 64 — halves parameter count
+        n_heads: int = 4,  # was 8
+        ffn_dim: int = 128,  # was 256
         dropout: float = 0.1,
         lr: float = 3e-4,
-        max_epochs: int = 15,    # was 50 — biggest speedup
-        patience: int = 5,       # was 10
+        max_epochs: int = 15,  # was 50 — biggest speedup
+        patience: int = 5,  # was 10
         batch_size: int = 512,
     ) -> None:
         self.n_blocks = int(n_blocks)
@@ -150,16 +154,14 @@ class FTTransformerModel:
         self.patience = int(patience)
         self.batch_size = int(batch_size)
         self._scaler: StandardScaler = StandardScaler()
-        self._net = None
-        self._device = None
+        self._net: nn.Module | None = None
+        self._device: torch.device | None = None
 
     def fit(self, X: np.ndarray, y: np.ndarray) -> "FTTransformerModel":
         X = self._scaler.fit_transform(np.asarray(X, dtype=np.float32))
         y = np.asarray(y, dtype=np.float32)
 
-        self._device = torch.device(
-            "cuda" if torch.cuda.is_available() else "cpu"
-        )
+        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
         rng = np.random.default_rng(42)
         n_val = max(1, int(0.10 * len(X)))
@@ -187,9 +189,7 @@ class FTTransformerModel:
             dropout=self.dropout,
         ).to(self._device)
 
-        optimiser = torch.optim.AdamW(
-            self._net.parameters(), lr=self.lr, weight_decay=1e-5
-        )
+        optimiser = torch.optim.AdamW(self._net.parameters(), lr=self.lr, weight_decay=1e-5)
         criterion = nn.BCEWithLogitsLoss()
         best_val_loss = float("inf")
         best_state: dict | None = None
@@ -207,16 +207,11 @@ class FTTransformerModel:
             # Validation
             self._net.eval()
             with torch.no_grad():
-                val_loss = criterion(
-                    self._net(X_val).squeeze(-1), y_val
-                ).item()
+                val_loss = criterion(self._net(X_val).squeeze(-1), y_val).item()
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
-                best_state = {
-                    k: v.cpu().clone()
-                    for k, v in self._net.state_dict().items()
-                }
+                best_state = {k: v.cpu().clone() for k, v in self._net.state_dict().items()}
                 patience_counter = 0
             else:
                 patience_counter += 1
@@ -229,15 +224,15 @@ class FTTransformerModel:
         return self
 
     def _proba(self, X: np.ndarray) -> np.ndarray:
+        if self._net is None or self._device is None:
+            raise RuntimeError("Call fit before prediction.")
         X_t = torch.tensor(
             self._scaler.transform(np.asarray(X, dtype=np.float32)),
             device=self._device,
         )
         self._net.eval()
         with torch.no_grad():
-            return torch.sigmoid(
-                self._net(X_t).squeeze(-1)
-            ).cpu().numpy()
+            return torch.sigmoid(self._net(X_t).squeeze(-1)).cpu().numpy()
 
     def predict(self, X: np.ndarray) -> np.ndarray:
         return (self._proba(X) >= 0.5).astype(int)

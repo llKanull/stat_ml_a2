@@ -9,6 +9,7 @@ def accuracy_score(y_true: np.ndarray, y_pred: np.ndarray) -> float:
     _validate_same_shape(y_true, y_pred)
     return float(np.mean(y_true == y_pred))
 
+
 def confusion_matrix(
     y_true: np.ndarray,
     y_pred: np.ndarray,
@@ -27,6 +28,7 @@ def confusion_matrix(
     for actual, predicted in zip(y_true, y_pred, strict=True):
         matrix[label_to_pos[actual], label_to_pos[predicted]] += 1
     return matrix
+
 
 def precision_recall_f1(
     y_true: np.ndarray,
@@ -50,6 +52,7 @@ def precision_recall_f1(
         "macro_recall": float(np.mean(recall)),
         "macro_f1": float(np.mean(f1)),
     }
+
 
 def roc_auc_score(y_true: np.ndarray, scores: np.ndarray) -> float:
     y_true = np.asarray(y_true)
@@ -84,9 +87,8 @@ def roc_auc_score(y_true: np.ndarray, scores: np.ndarray) -> float:
     auc = (rank_sum_pos - n_pos * (n_pos + 1) / 2.0) / (n_pos * n_neg)
     return float(auc)
 
-def mean_and_error_bar(
-    values: np.ndarray, confidence_z: float = 1.96
-) -> tuple[float, float]:
+
+def mean_and_error_bar(values: np.ndarray, confidence_z: float = 1.96) -> tuple[float, float]:
     values = np.asarray(values, dtype=float)
     if values.ndim != 1 or len(values) == 0:
         raise ValueError("values must be a non-empty one-dimensional array")
@@ -97,9 +99,8 @@ def mean_and_error_bar(
     standard_error = float(np.std(values, ddof=1) / np.sqrt(len(values)))
     return mean, confidence_z * standard_error
 
-def _safe_divide(
-    numerator: np.ndarray, denominator: np.ndarray
-) -> np.ndarray:
+
+def _safe_divide(numerator: np.ndarray, denominator: np.ndarray) -> np.ndarray:
     return np.divide(
         numerator,
         denominator,
@@ -110,6 +111,4 @@ def _safe_divide(
 
 def _validate_same_shape(a: np.ndarray, b: np.ndarray) -> None:
     if a.shape != b.shape:
-        raise ValueError(
-            f"Arrays must have the same shape, got {a.shape} and {b.shape}."
-        )
+        raise ValueError(f"Arrays must have the same shape, got {a.shape} and {b.shape}.")

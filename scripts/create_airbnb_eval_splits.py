@@ -56,6 +56,7 @@ def write_parquet(frame: pd.DataFrame, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     frame.to_parquet(path, index=False)
 
+
 def filter_active_short_term(frame: pd.DataFrame) -> pd.DataFrame:
     mask = pd.Series(True, index=frame.index)
 
@@ -66,8 +67,11 @@ def filter_active_short_term(frame: pd.DataFrame) -> pd.DataFrame:
     if "number_of_reviews" in frame.columns:
         mask &= frame["number_of_reviews"] > 0
 
-    missing = [c for c in ["minimum_nights", "has_availability", "number_of_reviews"]
-               if c not in frame.columns]
+    missing = [
+        c
+        for c in ["minimum_nights", "has_availability", "number_of_reviews"]
+        if c not in frame.columns
+    ]
     if missing:
         print(f"filter_active_short_term: columns not found, skipped: {missing}")
 
@@ -79,8 +83,8 @@ def main() -> None:
     heldout = set(args.generalization_cities or DEFAULT_GENERALIZATION_CITIES)
 
     previous = filter_active_short_term(pd.read_parquet(args.processed_dir / args.previous_name))
-    latest   = filter_active_short_term(pd.read_parquet(args.processed_dir / args.latest_name))
-    
+    latest = filter_active_short_term(pd.read_parquet(args.processed_dir / args.latest_name))
+
     train = previous[~previous["city"].isin(heldout)].copy()
     test = latest[latest["city"].isin(train["city"].unique())].copy()
     generalization = latest[latest["city"].isin(heldout)].copy()
