@@ -3,13 +3,14 @@
 # run_pipeline.sh — Full COMP90051 project pipeline
 #
 # Usage:
-#   bash scripts/run_pipeline.sh                  # full run (all steps)
-#   bash scripts/run_pipeline.sh --skip-download  # skip download only
-#   bash scripts/run_pipeline.sh --skip-build     # skip download + build
-#   bash scripts/run_pipeline.sh --fast           # 5-fold, no FT-Transformer
-#   bash scripts/run_pipeline.sh --fast --skip-build
+#   bash scripts/run_pipeline.sh                           # full run
+#   bash scripts/run_pipeline.sh --skip-download           # skip download
+#   bash scripts/run_pipeline.sh --skip-build              # skip download+build
+#   bash scripts/run_pipeline.sh --skip-fttransformer      # skip FT-Transformer
+#   bash scripts/run_pipeline.sh --fast                    # 5-fold, no FT-Trans
+#   bash scripts/run_pipeline.sh --skip-download --skip-fttransformer
 #
-# Run from project root:  cd /path/to/stat_ml_a2
+# Run from project root: cd /path/to/stat_ml_a2
 # =============================================================================
 
 set -euo pipefail
@@ -17,23 +18,25 @@ set -euo pipefail
 # ── Parse flags ───────────────────────────────────────────────────────────────
 SKIP_DOWNLOAD=false
 SKIP_BUILD=false
+SKIP_FTT=false
 FAST=false
 
 for arg in "$@"; do
   case $arg in
-    --skip-download) SKIP_DOWNLOAD=true ;;
-    --skip-build)    SKIP_BUILD=true; SKIP_DOWNLOAD=true ;;
-    --fast)          FAST=true ;;
+    --skip-download)      SKIP_DOWNLOAD=true ;;
+    --skip-build)         SKIP_BUILD=true; SKIP_DOWNLOAD=true ;;
+    --skip-fttransformer) SKIP_FTT=true ;;
+    --fast)               FAST=true; SKIP_FTT=true ;;
     *) echo "[ERROR] Unknown argument: $arg"; exit 1 ;;
   esac
 done
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 BOLD="\033[1m"; GREEN="\033[0;32m"; YELLOW="\033[0;33m"; RED="\033[0;31m"; RESET="\033[0m"
-step()  { echo -e "\n${BOLD}${GREEN}══ $1 ${RESET}"; }
-info()  { echo -e "${YELLOW}   $1${RESET}"; }
-ok()    { echo -e "${GREEN}   ✓ $1${RESET}"; }
-skip()  { echo -e "${YELLOW}   ↷ Skipping: $1${RESET}"; }
+step() { echo -e "\n${BOLD}${GREEN}══ $1 ${RESET}"; }
+info() { echo -e "${YELLOW}   $1${RESET}"; }
+ok()   { echo -e "${GREEN}   ✓ $1${RESET}"; }
+skip() { echo -e "${YELLOW}   ↷ Skipping: $1${RESET}"; }
 START_TIME=$SECONDS
 
 # ── Sanity check ──────────────────────────────────────────────────────────────
@@ -44,11 +47,13 @@ if [ ! -f "scripts/run_experiment.py" ]; then
 fi
 
 echo -e "\n${BOLD}COMP90051 Project Pipeline${RESET}"
-echo "  Started:      $(date)"
-echo "  Fast mode:    $FAST"
-echo "  Skip build:   $SKIP_BUILD"
+echo "  Started:            $(date)"
+echo "  Skip download:      $SKIP_DOWNLOAD"
+echo "  Skip build:         $SKIP_BUILD"
+echo "  Skip FT-Transformer:$SKIP_FTT"
+echo "  Fast mode:          $FAST"
 
-# ── Check what files already exist ────────────────────────────────────────────
+# ── Detect existing files ─────────────────────────────────────────────────────
 HAS_RAW_DATA=false
 HAS_BUILD_PARQUETS=false
 HAS_SPLIT_PARQUETS=false
@@ -58,10 +63,6 @@ HAS_SPLIT_PARQUETS=false
   [ -f "data/processed/airbnb_features_latest.parquet" ] && HAS_BUILD_PARQUETS=true
 [ -f "data/processed/airbnb_features_train.parquet" ] && \
   [ -f "data/processed/airbnb_feature_groups.json" ] && HAS_SPLIT_PARQUETS=true
-
-echo "  Has raw data: $HAS_RAW_DATA"
-echo "  Has build parquets: $HAS_BUILD_PARQUETS"
-echo "  Has split parquets: $HAS_SPLIT_PARQUETS"
 
 
 # ── Step 1: Download ──────────────────────────────────────────────────────────
@@ -79,30 +80,28 @@ fi
 # ── Step 2: Build features ────────────────────────────────────────────────────
 step "Step 2/4: Build feature parquets"
 
-if [ "$SKIP_BUILD" = true ] || [ "$HAS_SPLIT_PARQUETS" = true ]; then
-  # If we already have the final split parquets, we can skip both build AND split
-  if [ "$HAS_SPLIT_PARQUETS" = true ] && [ "$HAS_BUILD_PARQUETS" = false ]; then
-    skip "feature build — final split parquets already exist"
-    HAS_BUILD_PARQUETS=true  # signal step 3 to skip too
-  elif [ "$HAS_BUILD_PARQUETS" = true ]; then
-    skip "feature build — build parquets already exist"
-  else
-    echo -e "${RED}[ERROR] --skip-build set but no usable parquets found.${RESET}"
-    echo "  Run without --skip-build to build from raw data."
-    exit 1
-  fi
+if [ "$SKIP_BUILD" = true ] && [ "$HAS_SPLIT_PARQUETS" = true ]; then
+  skip "feature build — using existing split parquets"
+  HAS_BUILD_PARQUETS=true
+elif [ "$SKIP_BUILD" = true ] && [ "$HAS_BUILD_PARQUETS" = true ]; then
+  skip "feature build — build parquets already exist"
+elif [ "$SKIP_BUILD" = true ]; then
+  echo -e "${RED}[ERROR] --skip-build set but no usable parquets found.${RESET}"
+  exit 1
 else
-  info "Building features for all-but-latest snapshots (training data, ~15–30 min) …"
+  info "Building features (includes NLP — may take 15–30 min) …"
+
   python scripts/build_airbnb_features.py \
     --snapshot-split before-latest \
     --output-name airbnb_features_previous_all.parquet
-  ok "Previous snapshots built → data/processed/airbnb_features_previous_all.parquet"
 
-  info "Building features for latest snapshot per city (test data) …"
+  ok "Previous snapshots → data/processed/airbnb_features_previous_all.parquet"
+
   python scripts/build_airbnb_features.py \
     --snapshot-split latest \
     --output-name airbnb_features_latest.parquet
-  ok "Latest snapshots built → data/processed/airbnb_features_latest.parquet"
+
+  ok "Latest snapshots   → data/processed/airbnb_features_latest.parquet"
   HAS_BUILD_PARQUETS=true
 fi
 
@@ -110,9 +109,8 @@ fi
 # ── Step 3: Create splits ─────────────────────────────────────────────────────
 step "Step 3/4: Create train / test / generalisation splits"
 
-# Skip if: final split parquets already exist AND we didn't just rebuild
-if [ "$HAS_SPLIT_PARQUETS" = true ] && [ "$HAS_BUILD_PARQUETS" = true ] && [ "$SKIP_BUILD" = true ]; then
-  skip "split creation — airbnb_features_train.parquet already exists"
+if [ "$HAS_SPLIT_PARQUETS" = true ] && [ "$SKIP_BUILD" = true ]; then
+  skip "split creation — existing splits retained (re-run without --skip-build to rebuild)"
 else
   python scripts/create_airbnb_eval_splits.py
   ok "Splits written:"
@@ -126,20 +124,41 @@ fi
 # ── Step 4: Run experiment ────────────────────────────────────────────────────
 step "Step 4/4: Run experiment"
 
+OUTER_K=10
 if [ "$FAST" = true ]; then
-  info "Fast mode: 5-fold, Logistic + CatBoost only (no FT-Transformer)"
+  OUTER_K=5
+  info "Fast mode: 5-fold CV"
+else
+  info "Full run: 10-fold CV"
+fi
+
+if [ "$SKIP_FTT" = true ]; then
+  info "FT-Transformer skipped (run on Colab GPU separately)"
   python scripts/run_experiment.py \
-    --outer-k 5 \
+    --outer-k $OUTER_K \
     --inner-k 3 \
     --skip-fttransformer
 else
-  info "Full run: 10-fold, all three models (~2–4 hours on CPU)"
+  info "Running all 3 models including FT-Transformer (~2–4 hours on GPU)"
   python scripts/run_experiment.py \
-    --outer-k 10 \
+    --outer-k $OUTER_K \
     --inner-k 3
 fi
 
 ok "Experiment complete"
+
+
+# ── Step 5: Test set evaluation ───────────────────────────────────────────────
+step "Step 5/5: Test set & geographic generalisation evaluation"
+
+if [ "$SKIP_FTT" = true ]; then
+  python scripts/evaluate_test_set.py --skip-fttransformer
+else
+  python scripts/evaluate_test_set.py
+fi
+
+ok "Test evaluation complete"
+info "  outputs/tables/test_set_results.csv"
 info "  outputs/tables/fold_scores.csv"
 info "  outputs/tables/results_summary.csv"
 
