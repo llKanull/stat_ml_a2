@@ -251,10 +251,12 @@ def main() -> None:
     desc = _select_numeric(df, groups.get("description_nlp", []))
     text = host + rev + desc
     embedding = _add_embedding_pca_features(df, args.data_dir, n_components=16)
+    sbert = _select_numeric(df, groups.get("sbert_pca", []))
 
     feature_sets: dict[str, list[str]] = {
         "base_only": base,
         "base_plus_text": base + text,
+        "base_plus_text_emb": base + text + sbert,
     }
     if embedding:
         feature_sets["base_plus_text_embedding"] = base + text + embedding
