@@ -1,12 +1,23 @@
-How to run the project code:
+COMP90051 Project Code
 
-1. Create and activate a Python environment.
-2. Install dependencies with:
-   python -m pip install -e ".[dev]"
-3. Run checks with:
-   pytest
-   python scripts/smoke_check.py
-4. Run the final experiment with:
-   python scripts/run_experiment.py
+Topic: predicting high-demand Airbnb listings using structured listing features
+and NLP-derived host/review text features.
 
-Note: datasets are not included in this repository and should not be submitted.
+Setup:
+  python3 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip
+  python -m pip install -e ".[dev]"
+
+Checks:
+  pytest
+  python scripts/smoke_check.py
+
+Run:
+  bash scripts/run_pipeline.sh
+
+Fast run:
+  bash scripts/run_pipeline.sh --fast
+
+Data is downloaded from Inside Airbnb by the pipeline. Raw data is not included
+in the submission.
