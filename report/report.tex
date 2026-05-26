@@ -43,7 +43,9 @@ such as price, location, and review scores \cite{rezazadeh2021}. However,
 listings similar in price and review scores often differ in the quality and tone
 of their host profiles and text descriptions.
 
-\textbf{Research question:} \textit{Does NLP-derived text from host profiles and
+\textbf{Research question:} To address the difference, this project investigates the 
+prediction performance of unstructured text data such as review. Particularly, we formulate 
+the following research question: \textit{Does NLP-derived text from host profiles and
 guest reviews improve demand prediction beyond base listing features alone, and
 do semantic embeddings add further value?} We design a controlled ablation where
 three classifiers at different complexity tiers are evaluated on base-only versus
@@ -65,29 +67,31 @@ generalisation split.
 \section{Literature Review}
 %──────────────────────────────────────────────────────────────────────────────
 
-Rezazadeh Kalehbasti et al.\ \cite{rezazadeh2021} benchmark machine learning
-models for Airbnb price prediction, finding gradient-boosted trees consistently
-outperform linear models on structured tabular features. Their work excludes
-unstructured text, motivating our NLP ablation design.
+Balancing complex tabular features with unstructured text data is required for the predictive 
+modeling of short-term rental markets. Systemically, our approach is based on the traditional 
+machine learning benchmarks introduced by Rezazadeh Kalehbasti et al.~\cite{rezazadeh2021}, 
+who demonstrated that finding gradient-boosted trees consistently outperform linear models on 
+structured tabular features. However, their work excludes unstructured text, motivating our 
+NLP ablation design. To address this limitation and analyze the informal text such as host 
+profiles, listing descriptions, and guest reviews, we integrate the VADER sentiment analyzer 
+introduced by Hutto and Gilbert~\cite{hutto2014}. This lexicon-based model extracts compound,
+positive, negative, and neutral sentiment scores,  providing fast text feature engineering 
+without requiring neural embeddings.
 
-Hutto and Gilbert \cite{hutto2014} introduced VADER, a lexicon-based sentiment
-analyser calibrated for informal text. We apply VADER to host profiles, listing
-descriptions, and guest reviews to extract compound, positive, negative, and
-neutral sentiment scores, providing fast text feature engineering without
-requiring neural embeddings.
+While feature engineering increases the information density of the dataset, choosing a 
+suitable algorithm is still crucial for tabular performance. For our medium-complexity 
+baseline model and qualifying algorithm, we utilize CatBoost (NeurIPS 2018), a framework 
+introduced by Prokhorenkova et al.~\cite{prokhorenkova2018} that implements \textit{ordered 
+boosting} to eliminates prediction-shift bias in standard gradient boosting by computing 
+residuals on a permutation-ordered subset of training data.
 
-Prokhorenkova et al.\ \cite{prokhorenkova2018} introduced CatBoost, demonstrating
-that \textit{ordered boosting} eliminates prediction-shift bias in standard
-gradient boosting by computing residuals on a permutation-ordered subset of
-training data. This is our medium-complexity baseline and the qualifying
-algorithm (NeurIPS 2018).
-
-Gorishniy et al.\ \cite{gorishniy2021} propose the Feature Tokenizer +
-Transformer (FT-Transformer), showing Transformer architectures match or exceed
-gradient-boosted trees on several tabular benchmarks when each feature is first
-embedded via a learned per-feature linear map (NeurIPS 2021). Notably, the paper
-acknowledges that tree-based models remain competitive; our results corroborate
-this finding on a real-world demand prediction task.
+Despite the tree-based models have dominated on tabular tasks for a long time, new deep 
+learning models have introduced competitive alternatives. Especially, Gorishniy et 
+al.~\cite{gorishniy2021} proposed the Feature Tokenizer + Transformer (FT-Transformer), which 
+shows that Transformer architectures match or exceed gradient-boosted trees on several 
+tabular benchmarks when each feature is first embedded via a learned per-feature linear map 
+(NeurIPS 2021). However, the paper also acknowledges that tree-based models remain highly 
+competitive. Our results corroborate this finding on a real-world demand prediction task.
 
 %──────────────────────────────────────────────────────────────────────────────
 \section{Methods}
@@ -331,8 +335,13 @@ FT-Transformer $+0.006$/$+0.001$. SBERT PCA embeddings hurt FT-Transformer
 simple engineered text features are already present.
 
 \textbf{Alternatives considered.}
-TabNet \cite{arik2021} was rejected (AAAI is not a qualifying venue). LightGBM
-was rejected for sharing the same model class as CatBoost.
+TabNet \cite{arik2021} was considered as a deep learning alternative for tabular data, but it 
+was rejected because AAAI was not a qualifying venue. LightGBM was considered for the tree-
+based benchmark. However, it was rejected for sharing the same model class as CatBoost. 
+XGBoost was considered as a powerful gradient-boosted baseline for tabular classification. 
+Nevertheless, it was rejected for possible introducing target leakage across cross-validation
+because of manual categorical variables encoding. CatBoost handles categorical features using 
+symmetric trees and ordered boosting to prevent the leakage.
 \texttt{estimated\_occupancy\_l365d} was rejected as a target due to
 feature--target leakage ($r = 0.638$ with review counts).
 
