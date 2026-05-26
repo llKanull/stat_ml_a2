@@ -7,12 +7,19 @@
 \usepackage[justification=centering,singlelinecheck=false]{caption}
 \usepackage{float}
 \usepackage{listings}
-\usepackage[margin=1.7cm]{geometry}
+\usepackage[margin=1.5cm]{geometry}
 \usepackage{xcolor}
 \usepackage{amsmath}
 \usepackage{hyperref}
-\setlength{\parskip}{0.2ex}
+\usepackage{titlesec}
+\setlength{\parskip}{0.35ex}
 \setlength{\parindent}{0pt}
+\setlength{\intextsep}{8pt}
+\setlength{\textfloatsep}{8pt}
+\setlength{\floatsep}{8pt}
+\captionsetup{font=small,skip=4pt}
+\titlespacing*{\subsection}{0pt}{1.2ex}{0.6ex}
+\newcommand{\reporttabcolsep}{4pt}
 \lstset{
   basicstyle=\ttfamily\small,
   breaklines=true,
@@ -30,7 +37,6 @@ Rising or Declining Airbnb Demand in Australia}\\[0.4em]
 
 \begin{document}
 \maketitle
-
 %──────────────────────────────────────────────────────────────────────────────
 \section{Introduction}
 %──────────────────────────────────────────────────────────────────────────────
@@ -43,8 +49,8 @@ such as price, location, and review scores \cite{rezazadeh2021}. However,
 listings similar in price and review scores often differ in the quality and tone
 of their host profiles and text descriptions.
 
-\textbf{Research question:} To address the difference, this project investigates the 
-prediction performance of unstructured text data such as review. Particularly, we formulate 
+\textbf{Research question:} To address this gap, this project investigates
+whether unstructured host and review text improves demand prediction. We formulate
 the following research question: \textit{Does NLP-derived text from host profiles and
 guest reviews improve demand prediction beyond base listing features alone, and
 do semantic embeddings add further value?} We design a controlled ablation where
@@ -67,13 +73,14 @@ generalisation split.
 \section{Literature Review}
 %──────────────────────────────────────────────────────────────────────────────
 
-Balancing complex tabular features with unstructured text data is required for the predictive 
-modeling of short-term rental markets. Systemically, our approach is based on the traditional 
-machine learning benchmarks introduced by Rezazadeh Kalehbasti et al.~\cite{rezazadeh2021}, 
-who demonstrated that finding gradient-boosted trees consistently outperform linear models on 
-structured tabular features. However, their work excludes unstructured text, motivating our 
-NLP ablation design. To address this limitation and analyze the informal text such as host 
-profiles, listing descriptions, and guest reviews, we integrate the VADER sentiment analyzer 
+Balancing complex tabular features with unstructured text data is central to
+predictive modelling in short-term rental markets. Our approach builds on the
+traditional machine learning benchmarks introduced by Rezazadeh Kalehbasti et
+al.~\cite{rezazadeh2021}, who demonstrate that gradient-boosted trees
+consistently outperform linear models on structured tabular features. However,
+their work excludes unstructured text, motivating our NLP ablation design. To
+analyse informal text such as host profiles, listing descriptions, and guest
+reviews, we integrate the VADER sentiment analyzer
 introduced by Hutto and Gilbert~\cite{hutto2014}. This lexicon-based model extracts compound,
 positive, negative, and neutral sentiment scores,  providing fast text feature engineering 
 without requiring neural embeddings.
@@ -82,11 +89,11 @@ While feature engineering increases the information density of the dataset, choo
 suitable algorithm is still crucial for tabular performance. For our medium-complexity 
 baseline model and qualifying algorithm, we utilize CatBoost (NeurIPS 2018), a framework 
 introduced by Prokhorenkova et al.~\cite{prokhorenkova2018} that implements \textit{ordered 
-boosting} to eliminates prediction-shift bias in standard gradient boosting by computing 
+boosting} to eliminate prediction-shift bias in standard gradient boosting by computing
 residuals on a permutation-ordered subset of training data.
 
-Despite the tree-based models have dominated on tabular tasks for a long time, new deep 
-learning models have introduced competitive alternatives. Especially, Gorishniy et 
+Although tree-based models have long dominated tabular tasks, new deep
+learning models have introduced competitive alternatives. Gorishniy et
 al.~\cite{gorishniy2021} proposed the Feature Tokenizer + Transformer (FT-Transformer), which 
 shows that Transformer architectures match or exceed gradient-boosted trees on several 
 tabular benchmarks when each feature is first embedded via a learned per-feature linear map 
@@ -107,6 +114,7 @@ portion of each outer fold to prevent leakage.
 
 \begin{table}[H]
 \centering\small
+\setlength{\tabcolsep}{\reporttabcolsep}
 \begin{tabular}{p{2.9cm}cp{9.8cm}}
 \toprule
 Feature group & Count & Description \\
@@ -152,6 +160,7 @@ computed on each outer training fold.
 
 \begin{table}[H]
 \centering\small
+\setlength{\tabcolsep}{\reporttabcolsep}
 \begin{tabular}{llll}
 \toprule
 Complexity & Algorithm & Tuned parameter(s) & Citation \\
@@ -198,6 +207,7 @@ CatBoost were tuned on 115{,}961 training rows; FT-Transformer was tuned on a
 
 \begin{table}[H]
 \centering\small
+\setlength{\tabcolsep}{\reporttabcolsep}
 \begin{tabular}{lll}
 \toprule
 Algorithm & Hyperparameter & Candidate values \\
@@ -220,11 +230,11 @@ All metrics are computed from scratch. ROC-AUC uses the rank-sum formula;
 error bars are $1.96\times\hat\sigma/\sqrt{10}$.
 Table~\ref{tab:cv} reports 10-fold CV results; Table~\ref{tab:test} reports
 held-out test and geographic generalisation; Table~\ref{tab:cm} shows the
-confusion matrix for the best CV configuration.
+confusion matrix for the CatBoost base-only CV configuration.
 
 \begin{table}[H]
 \centering\small
-\setlength{\tabcolsep}{4pt}
+\setlength{\tabcolsep}{\reporttabcolsep}
 \begin{tabular}{llccc}
 \toprule
 Model & Features & Accuracy & Macro-F1 & ROC-AUC \\
@@ -244,14 +254,73 @@ CatBoost       & Base+Text      & $0.887\pm0.002$ & $0.833\pm0.003$ & $\mathbf{0
 \label{tab:cv}
 \end{table}
 
+\subsection{Model complexity and CV performance}
+CatBoost (AUC $= 0.903$) outperforms both Logistic Regression
+($0.792$, $\Delta = 0.111$) and FT-Transformer ($0.839$, $\Delta = 0.064$).
+The large gap over Logistic Regression confirms that short-stay demand is
+governed by strong non-linear interactions between price, location, capacity,
+and review scores that gradient-boosted trees capture far more effectively
+than a linear boundary.
+
 \begin{table}[H]
 \centering\small
-\setlength{\tabcolsep}{5pt}
+\setlength{\tabcolsep}{\reporttabcolsep}
+\begin{tabular}{llcc}
+\toprule
+ & & \multicolumn{2}{c}{\textbf{Predicted}} \\
+\cmidrule(l){3-4}
+ & & Low demand (0) & High demand (1) \\
+\midrule
+\multirow{2}{*}{\textbf{Actual}}
+  & Low demand (0) & 8{,}175 (TN) &   522 (FP) \\
+  & High demand (1) &   812 (FN) & 2{,}087 (TP) \\
+\bottomrule
+\end{tabular}
+\caption{CatBoost base-only confusion matrix, averaged across outer CV folds
+  ($n_{\text{test}}\approx11{,}596$; recall~$=0.720$, specificity~$=0.940$).}
+\label{tab:cm}
+\end{table}
+
+The confusion matrix (Table~\ref{tab:cm}) shows the main operating trade-off:
+CatBoost achieves high specificity ($0.940$) but moderate recall ($0.720$),
+correctly identifying 70\% of high-demand listings while producing few false
+positives.
+
+FT-Transformer outperforms Logistic Regression ($0.839$ vs $0.792$) but falls
+below CatBoost. This suggests attention-based interactions help, but do not match
+axis-aligned tree splits over structured demand signals. Its encoder-layer count
+showed no consistent winner, while all configurations selected learning rate
+$0.001$, suggesting depth-insensitivity on this cross-sectional tabular task.
+This comparison should be interpreted with the GPU-runtime limitation in mind,
+since FT-Transformer tuning used fewer rows than Logistic Regression and CatBoost.
+
+\subsection{Hyperparameter selection}
+Logistic Regression converged to $C = 0.01$ and CatBoost to depth $= 15$ in all
+10 outer folds with both the largest candidates tested in their respective grids
+$\{0.0001, 0.001, 0.01\}$ and $\{9, 12, 15\}$. This reflects a well-known
+statistical relationship: with 115{,}961 training instances, models require less
+regularisation and benefit from greater capacity than smaller datasets, as the
+larger sample provides sufficient implicit regularisation against overfitting.
+ FT-Transformer selected learning rate $0.001$ in all
+variants; final fits used 4 encoder blocks for Base only and 8 blocks for both
+text-feature settings, indicating that optimisation rate mattered more than depth
+within the tested grid.
+This finding suggests grids should be extended upward for large-scale tabular
+datasets in future work.
+
+\subsection{Temporal and geographic generalisation}
+The predominantly cross-sectional training data means CV folds reflect within-city
+variation, so the held-out test and geographic generalisation are the primary
+performance measures.
+
+\begin{table}[H]
+\centering\small
+\setlength{\tabcolsep}{\reporttabcolsep}
 \begin{tabular}{llcccc}
 \toprule
 Model & Features &
-  \multicolumn{2}{c}{Temporal test ($n=52{,}006$)} &
-  \multicolumn{2}{c}{Geographic gen ($n=31{,}675$)} \\
+  \multicolumn{2}{c}{Temporal ($n=52{,}006$)} &
+  \multicolumn{2}{c}{Geographic ($n=31{,}675$)} \\
 \cmidrule(lr){3-4}\cmidrule(lr){5-6}
  & & Macro-F1 & ROC-AUC & Macro-F1 & ROC-AUC \\
 \midrule
@@ -264,95 +333,55 @@ CatBoost       & Base only      & 0.676 & 0.806 & 0.632 & 0.739 \\
 CatBoost       & Base+Text      & \textbf{0.682} & \textbf{0.813} & \textbf{0.639} & \textbf{0.743} \\
 \bottomrule
 \end{tabular}
-\caption{Held-out test set evaluation. Models fit on full training set with best
-  CV hyperparameters; threshold from training only.}
+\caption{Held-out evaluation. Models use best CV hyperparameters; threshold from
+  training only.}
 \label{tab:test}
 \end{table}
 
-\begin{table}[H]
-\centering\small
-\begin{tabular}{llcc}
-\toprule
- & & \multicolumn{2}{c}{\textbf{Predicted}} \\
-\cmidrule(l){3-4}
- & & Low demand (0) & High demand (1) \\
-\midrule
-\multirow{2}{*}{\textbf{Actual}}
-  & Low demand (0) & 8{,}175 (TN) &   522 (FP) \\
-  & High demand (1) &   812 (FN) & 2{,}087 (TP) \\
-\bottomrule
-\end{tabular}
-\caption{Confusion matrix for CatBoost (base only), per outer CV fold average
-  ($n_{\text{test}}\approx11{,}596$, positive rate $= 0.25$).
-  Recall~$=0.720$, Specificity~$=0.940$.}
-\label{tab:cm}
-\end{table}
-
-\textbf{Model complexity and CV performance.}
-CatBoost (AUC $= 0.903$) outperforms both Logistic Regression
-($0.792$, $\Delta = 0.111$) and FT-Transformer ($0.839$, $\Delta = 0.064$).
-The large gap over Logistic Regression confirms that short-stay demand is
-governed by strong non-linear interactions between price, location, capacity,
-and review scores that gradient-boosted trees capture far more effectively
-than a linear boundary. The confusion matrix (Table~\ref{tab:cm}) reveals a
-precision--recall trade-off: CatBoost achieves high specificity ($0.940$) but
-moderate recall ($0.720$), correctly identifying 70\% of high-demand listings
-while producing few false positives. FT-Transformer outperforms Logistic Regression ($0.839$ vs $0.792$) but
-falls below CatBoost, suggesting attention-based interactions help yet cannot
-replicate axis-aligned tree splits over structured demand signals. The held-out test (Table~\ref{tab:test})
-provides the primary cross-model comparison. Its encoder-layer count showed no
-consistent winner, while all configurations selected learning rate $0.001$,
-suggesting depth-insensitivity on this cross-sectional tabular task.
-
-\textbf{Hyperparameter selection.}
-Logistic Regression converged to $C = 0.01$ and CatBoost to depth $= 15$ in all
-10 outer folds with both the largest candidates tested in their respective grids
-$\{0.0001, 0.001, 0.01\}$ and $\{9, 12, 15\}$. This reflects a well-known
-statistical relationship: with 115{,}961 training instances, models require less
-regularisation and benefit from greater capacity than smaller datasets, as the
-larger sample provides sufficient implicit regularisation against overfitting.
-This finding suggests grids should be extended upward for large-scale tabular
-datasets in future work.
-
-\textbf{Temporal and geographic generalisation.}
-The predominantly cross-sectional training data means CV folds reflect within-city
-variation, so the held-out test and geographic generalisation are the primary
-performance measures. All models show a substantial CV-to-test AUC drop
+All models show a substantial CV-to-test AUC drop
 (CatBoost: $0.903{\to}0.806$; FT-Transformer: $0.839{\to}0.784$;
 Logistic: $0.792{\to}0.753$), reflecting seasonal distribution shift to January
-2026. Geographic generalisation to Sydney, Tasmania, and Western Australia
+2026 absent during training.
+Geographic generalisation to Sydney, Tasmania, and Western Australia
 incurs a further drop (CatBoost: $0.806{\to}0.739$; FT-Transformer:
 $0.784{\to}0.747$; Logistic: $0.753{\to}0.714$), reflecting city-specific
-patterns absent during training. CatBoost consistently outperforms the other
-models across all sets.
+patterns absent during training. The ranking is nevertheless stable: CatBoost
+consistently outperforms the other models across all sets, so the shift reduces
+absolute performance but does not reverse the model comparison. Future work
+should test this over multiple years of snapshots.
 
-\textbf{Effect of NLP-engineered text features.}
+\subsection{Effect of NLP-engineered text features}
 NLP features provide minimal CV benefit ($\Delta\text{AUC} = +0.003$ Logistic,
 $+0.001$ CatBoost, $-0.002$ FT-Transformer) but a small consistent gain on
 held-out data: CatBoost $+0.008$/$+0.003$ (test/gen), Logistic $+0.002$/$+0.001$,
 FT-Transformer $+0.006$/$+0.001$. SBERT PCA embeddings hurt FT-Transformer
 ($0.790\to0.783$ test AUC), suggesting PCA-compressed embeddings add noise when
-simple engineered text features are already present.
+simple engineered text features are already present. The pattern implies that
+text is not the main demand signal, but compact sentiment/readability summaries
+capture weak host-quality and guest-experience cues that transfer slightly better
+than sparse semantic embeddings under distribution shift. The SBERT result may
+also reflect information loss from PCA, which preserves variance rather than the
+nonlinear directions most useful for classification.
 
-\textbf{Alternatives considered.}
+\subsection{Alternatives considered}
 TabNet \cite{arik2021} was considered as a deep learning alternative for tabular data, but it 
 was rejected because AAAI was not a qualifying venue. LightGBM was considered for the tree-
 based benchmark. However, it was rejected for sharing the same model class as CatBoost. 
-XGBoost was considered as a powerful gradient-boosted baseline for tabular classification. 
-Nevertheless, it was rejected for possible introducing target leakage across cross-validation
-because of manual categorical variables encoding. CatBoost handles categorical features using 
-symmetric trees and ordered boosting to prevent the leakage.
+XGBoost was considered as a powerful gradient-boosted baseline for tabular classification.
+However, it was rejected because it would largely duplicate CatBoost's boosted-tree
+role while requiring a separate categorical encoding pipeline. CatBoost was preferred
+because its ordered boosting and native categorical-feature handling better match the
+mixed Airbnb tabular features under nested cross-validation.
 \texttt{estimated\_occupancy\_l365d} was rejected as a target due to
 feature--target leakage ($r = 0.638$ with review counts).
-
 %──────────────────────────────────────────────────────────────────────────────
 \section{Conclusion}
 %──────────────────────────────────────────────────────────────────────────────
 
 This study compared Logistic Regression, CatBoost (NeurIPS 2018), and
 FT-Transformer (NeurIPS 2021) for predicting high-demand Airbnb listings from
-up to 129 engineered features (97 base and NLP, plus 32 SBERT PCA) across 115{,}961 predominantly cross-sectional Australian 
-listing observations, with and without NLP-derived text and SBERT PCA embeddings resulting in three takeaway findings.  First, CatBoost achieves the best CV performance
+up to 129 engineered features across 115{,}961 predominantly cross-sectional
+Australian listing observations. Three findings emerge. First, CatBoost achieves the best CV performance
 (AUC $= 0.903$), outperforming Logistic Regression by $\Delta = 0.111$ and
 FT-Transformer by $\Delta = 0.064$, confirming that demand is governed by
 non-linear structural interactions best captured by gradient-boosted trees.
